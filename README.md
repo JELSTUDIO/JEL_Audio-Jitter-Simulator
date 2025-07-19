@@ -19,11 +19,13 @@ This tool simulates **jitter**—the subtle time-based distortion that happens w
 
 ### 📦 Installation
 
-Clone this repo and install dependencies:
+Clone this repo, create and activate VENV and install dependencies:
 
 ```bash
 git clone https://github.com/JELSTUDIO/JEL_Audio-Jitter-Simulator.git
 cd JEL_Audio-Jitter-Simulator
+python3.13 -m venv venvPython313
+venvPython313\scripts\activate
 pip3 install -r requirements.txt
 ```
 
