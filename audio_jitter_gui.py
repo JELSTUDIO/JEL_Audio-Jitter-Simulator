@@ -1,3 +1,4 @@
+# version 1.3.0
 import numpy as np
 import soundfile as sf
 import matplotlib.pyplot as plt
@@ -9,8 +10,48 @@ from tkinter import filedialog
 PRESETS = {
     "High-End DAC": 1e-7,
     "Consumer Grade": 1e-6,
-    "Vintage Gear": 5e-6
+    "Vintage Gear": 5e-6,
+    "Manual": None  # Special case
 }
+
+class ToolTip:
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.tipwindow = None
+        self.id = None
+
+        widget.bind("<Enter>", self.schedule)
+        widget.bind("<Leave>", self.unschedule)
+
+    def schedule(self, event=None):
+        self.unschedule()
+        self.id = self.widget.after(500, self.show_tooltip)
+
+    def unschedule(self, event=None):
+        if self.id:
+            self.widget.after_cancel(self.id)
+            self.id = None
+        self.hide_tooltip()
+
+    def show_tooltip(self):
+        if self.tipwindow or not self.text:
+            return
+        x = self.widget.winfo_rootx() + 20
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 10
+        self.tipwindow = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.geometry(f"+{x}+{y}")
+        label = tk.Label(tw, text=self.text, justify=tk.LEFT,
+                         background="#ffffe0", relief=tk.SOLID, borderwidth=1,
+                         font=("tahoma", "8", "normal"))
+        label.pack(ipadx=4)
+
+    def hide_tooltip(self):
+        tw = self.tipwindow
+        self.tipwindow = None
+        if tw:
+            tw.destroy()
 
 def apply_jitter(samples, sr, jitter_std):
     time = np.arange(len(samples)) / sr
@@ -39,6 +80,22 @@ def process_file(file_path, jitter_std):
     sf.write(output_file, output, sr, subtype=original_info.subtype)
     print(f"Saved jittered file to: {output_file}")
 
+    preview_waveform(data[:, 0] if data.ndim == 2 else data,
+                     output[:, 0] if data.ndim == 2 else output,
+                     sr)
+
+def preview_waveform(original, jittered, sr):
+    times = np.arange(len(original)) / sr
+    plt.figure(figsize=(10, 4))
+    plt.plot(times[:500], original[:500], label="Original", alpha=0.6)
+    plt.plot(times[:500], jittered[:500], label="Jittered", alpha=0.6)
+    plt.title("Waveform Comparison (First 500 Samples)")
+    plt.xlabel("Time (s)")
+    plt.ylabel("Amplitude")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
 def launch_gui():
     def browse_file():
         filename = filedialog.askopenfilename(filetypes=[("WAV files", "*.wav")])
@@ -46,10 +103,23 @@ def launch_gui():
             file_entry.delete(0, tk.END)
             file_entry.insert(0, filename)
 
+    def update_manual_input(*args):
+        is_manual = preset_var.get() == "Manual"
+        manual_entry.configure(state=tk.NORMAL if is_manual else tk.DISABLED)
+
     def run_simulation():
         file_path = file_entry.get()
         preset_name = preset_var.get()
-        jitter_std = PRESETS[preset_name] * float(jitter_scale.get())
+        if preset_name == "Manual":
+            try:
+                jitter_std = float(manual_entry.get())
+                if jitter_std <= 0:
+                    raise ValueError
+            except ValueError:
+                print("Please enter a valid positive number for manual jitter.")
+                return
+        else:
+            jitter_std = PRESETS[preset_name] * float(jitter_scale.get())
         process_file(file_path, jitter_std)
 
     root = tk.Tk()
@@ -59,18 +129,29 @@ def launch_gui():
     file_entry = tk.Entry(root, width=40)
     file_entry.grid(row=0, column=1)
     tk.Button(root, text="Browse", command=browse_file).grid(row=0, column=2)
+    ToolTip(file_entry, "Select your input WAV file (mono or stereo)")
 
     tk.Label(root, text="Hardware Preset:").grid(row=1, column=0)
     preset_var = tk.StringVar(value="Consumer Grade")
-    tk.OptionMenu(root, preset_var, *PRESETS.keys()).grid(row=1, column=1)
+    preset_menu = tk.OptionMenu(root, preset_var, *PRESETS.keys(), command=update_manual_input)
+    preset_menu.grid(row=1, column=1)
+    ToolTip(preset_menu, "Choose a hardware preset or select Manual input")
 
     tk.Label(root, text="Jitter Multiplier:").grid(row=2, column=0)
     jitter_scale = tk.Scale(root, from_=0.5, to=5.0, resolution=0.1,
                             orient=tk.HORIZONTAL)
     jitter_scale.set(1.0)
     jitter_scale.grid(row=2, column=1)
+    ToolTip(jitter_scale, "Multiplies the preset jitter value")
 
-    tk.Button(root, text="Apply Jitter", command=run_simulation).grid(row=3, column=1)
+    tk.Label(root, text="Manual Jitter Value (sec):").grid(row=3, column=0)
+    manual_entry = tk.Entry(root)
+    manual_entry.grid(row=3, column=1)
+    manual_entry.insert(0, "0.000001")
+    manual_entry.configure(state=tk.DISABLED)
+    ToolTip(manual_entry, "Enter custom jitter in seconds (used only if Manual is selected)")
+
+    tk.Button(root, text="Apply Jitter", command=run_simulation).grid(row=4, column=1)
 
     root.mainloop()
 
